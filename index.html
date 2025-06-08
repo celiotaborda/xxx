@@ -168,9 +168,9 @@
             color: #555;
         }
         #legend-content {
-            max-height: 150px;
+            max-height: 200px;
             overflow-y: auto;
-            padding-right: 5px;
+            padding: 10px;
         }
         .method-control {
             margin: 15px 0;
@@ -347,6 +347,17 @@
                     { label: 'Médio', value: '6,1 – 12', color: '#FFFF00' },
                     { label: 'Alto', value: '12,1 – 18', color: '#90EE90' },
                     { label: 'Muito alto', value: '> 18', color: '#008000' }
+                ]
+            },
+            'Al': {
+                title: 'Alumínio trocável',
+                unit: 'cmolc/dm³',
+                classes: [
+                    { label: 'Nulo', value: '0,0', color: '#008000' },
+                    { label: 'Baixo', value: '0,01 – 0,2', color: '#90EE90' },
+                    { label: 'Médio', value: '0,21 – 0,5', color: '#FFFF00' },
+                    { label: 'Alto', value: '0,51 – 1,0', color: '#FFA500' },
+                    { label: 'Muito alto', value: '> 1,0', color: '#FF0000' }
                 ]
             },
             'K': {
@@ -533,9 +544,9 @@
         async function loadShapefile() {
             try {
                 console.log('Iniciando carregamento do shapefile...');
-                const shpResponse = await fetch('shapefile/area_imovel2.shp');
-                const dbfResponse = await fetch('shapefile/area_imovel2.dbf');
-                const prjResponse = await fetch('shapefile/area_imovel2.prj');
+                const shpResponse = await fetch('shapefile/area_imovel.shp');
+                const dbfResponse = await fetch('shapefile/area_imovel.dbf');
+                const prjResponse = await fetch('shapefile/area_imovel.prj');
 
                 if (!shpResponse.ok || !dbfResponse.ok || !prjResponse.ok) {
                     throw new Error('Erro ao carregar arquivos do shapefile');
