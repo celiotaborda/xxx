@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador de Área do Imóvel</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/openlayers/7.5.2/ol.css" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+        
+        .container {
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 10px 20px;
+            text-align: center;
+        }
+        
+        .map-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 5px;
+            z-index: 1000;
+            display: none;
+        }
+        
+        .error-message {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #e74c3c;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            z-index: 1000;
+            display: none;
+        }
+        
+        .controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            margin: 2px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Visualizador de Área do Imóvel</h1>
+        </div>
+        
+        <div class="map-container">
+            <div id="map"></div>
+            <div class="loading" id="loading">
+                <p>Carregando shapefile...</p>
+            </div>
+            <div class="error-message" id="error"></div>
+            <div class="controls">
+                <button onclick="loadShapefile()">Carregar Shapefile</button>
+                <button onclick="centerOnFeatures()">Centralizar</button>
+                <button onclick="toggleLayer()">Mostrar/Ocultar Shapefile</button>
+                <button onclick="toggleImageLayers()">Mostrar/Ocultar Imagens</button>
+                <button onclick="adjustImageOpacity()">Ajustar Transparência</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/openlayers/7.5.2/ol.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shpjs/4.0.4/shp.min.js"></script>
+    
+    <script>
+        let map;
+        let shapefileLayer;
+        let shapefileSource;
+        let imageLayers = [];
+        let allLayers = [];
+        
+        // Inicializar o mapa
+        function initMap() {
+            // Criar fonte do mapa base OpenStreetMap
+            const osmSource = new ol.source.OSM();
+            
+            // Criar camada base
+            const baseLayer = new ol.layer.Tile({
+                source: osmSource
+            });
+            
+            // Criar fonte para o shapefile
+            shapefileSource = new ol.source.Vector();
+            
+            // Criar camada para o shapefile
+            shapefileLayer = new ol.layer.Vector({
+                source: shapefileSource,
+                style: new ol.style.Style({
+                    fill: new ol.style.Fill({
+                        color: 'rgba(52, 152, 219, 0.3)'
+                    }),
+                    stroke: new ol.style.Stroke({
+                        color: '#3498db',
+                        width: 2
+                    }),
+                    image: new ol.style.Circle({
+                        radius: 6,
+                        fill: new ol.style.Fill({
+                            color: '#3498db'
+                        }),
+                        stroke: new ol.style.Stroke({
+                            color: '#2980b9',
+                            width: 2
+                        })
+                    })
+                })
+            });
+            
+            // Inicializar array de camadas
+            allLayers = [baseLayer];
+            
+            // Criar o mapa (inicialmente só com a camada base)
+            map = new ol.Map({
+                target: 'map',
+                layers: allLayers,
+                view: new ol.View({
+                    center: ol.proj.fromLonLat([-46.6333, -23.5505]), // São Paulo como centro inicial
+                    zoom: 10
+                })
+            });
+            
+            // Carregar as imagens PNG e depois o shapefile
+            loadImageLayers().then(() => {
+                loadShapefile();
+            });
+        }
+        
+        // Função para verificar e carregar as imagens PNG da pasta layers
+        async function loadImageLayers() {
+            const loading = document.getElementById('loading');
+            loading.style.display = 'block';
+            loading.innerHTML = '<p>Verificando imagens na pasta layers...</p>';
+            
+            try {
+                // Lista de possíveis nomes de arquivo para verificar
+                const possibleImages = [
+                    'layer1.png', 'layer2.png', 'layer3.png', 'layer4.png', 'layer5.png',
+                    'overlay.png', 'background.png', 'terrain.png', 'satellite.png',
+                    'ortofoto.png', 'aerial.png', 'topo.png', 'cadastral.png',
+                    'image1.png', 'image2.png', 'image3.png', 'base.png'
+                ];
+                
+                // Verificar quais imagens existem
+                const existingImages = [];
+                
+                for (const imageName of possibleImages) {
+                    try {
+                        const response = await fetch(`./layers/${imageName}`, { method: 'HEAD' });
+                        if (response.ok) {
+                            existingImages.push(imageName);
+                        }
+                    } catch (err) {
+                        // Imagem não existe, continuar
+                    }
+                }
+                
+                // Tentar verificar arquivos automaticamente listando o diretório
+                try {
+                    const dirResponse = await fetch('./layers/');
+                    if (dirResponse.ok) {
+                        const dirText = await dirResponse.text();
+                        const pngMatches = dirText.match(/href="([^"]*\.png)"/gi);
+                        if (pngMatches) {
+                            pngMatches.forEach(match => {
+                                const fileName = match.match(/href="([^"]*)"/)[1];
+                                if (!existingImages.includes(fileName)) {
+                                    existingImages.push(fileName);
+                                }
+                            });
+                        }
+                    }
+                } catch (err) {
+                    console.log('Não foi possível listar o diretório automaticamente');
+                }
+                
+                console.log('Imagens encontradas:', existingImages);
+                
+                // Criar camadas para cada imagem encontrada
+                for (let i = 0; i < existingImages.length; i++) {
+                    const imageName = existingImages[i];
+                    await createImageLayer(imageName, i);
+                }
+                
+                // Reorganizar as camadas: base -> imagens -> shapefile
+                reorganizeLayers();
+                
+                loading.innerHTML = `<p>Carregadas ${existingImages.length} imagens da pasta layers...</p>`;
+                
+            } catch (err) {
+                console.error('Erro ao carregar imagens:', err);
+                loading.innerHTML = '<p>Erro ao verificar pasta layers...</p>';
+            }
+        }
+        
+        // Criar uma camada de imagem
+        async function createImageLayer(imageName, index) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                
+                img.onload = function() {
+                    // Calcular extent baseado na view atual ou usar extent padrão
+                    const view = map.getView();
+                    const center = view.getCenter();
+                    const resolution = view.getResolution();
+                    
+                    // Usar dimensões da imagem para calcular extent aproximado
+                    const width = img.width * resolution * 2;
+                    const height = img.height * resolution * 2;
+                    
+                    const extent = [
+                        center[0] - width/2,
+                        center[1] - height/2,
+                        center[0] + width/2,
+                        center[1] + height/2
+                    ];
+                    
+                    // Criar fonte da imagem
+                    const imageSource = new ol.source.ImageStatic({
+                        url: `./layers/${imageName}`,
+                        imageExtent: extent,
+                        projection: 'EPSG:3857'
+                    });
+                    
+                    // Criar camada da imagem
+                    const imageLayer = new ol.layer.Image({
+                        source: imageSource,
+                        opacity: 0.7, // Transparência para ver camadas abaixo
+                        name: imageName
+                    });
+                    
+                    imageLayers.push(imageLayer);
+                    console.log(`Camada ${imageName} criada com sucesso`);
+                    resolve();
+                };
+                
+                img.onerror = function() {
+                    console.warn(`Erro ao carregar imagem: ${imageName}`);
+                    resolve(); // Continuar mesmo se uma imagem falhar
+                };
+                
+                img.src = `./layers/${imageName}`;
+            });
+        }
+        
+        // Reorganizar as camadas na ordem correta
+        function reorganizeLayers() {
+            // Limpar camadas atuais
+            map.getLayers().clear();
+            
+            // Adicionar camada base
+            map.addLayer(allLayers[0]); // baseLayer
+            
+            // Adicionar camadas de imagem
+            imageLayers.forEach(layer => {
+                map.addLayer(layer);
+            });
+            
+            // Adicionar camada do shapefile por último (fica no topo)
+            map.addLayer(shapefileLayer);
+        }
+        async function loadShapefile() {
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            
+            try {
+                // Limpar features existentes
+                shapefileSource.clear();
+                
+                // Tentar carregar o arquivo shapefile
+                const shapefileUrl = './shapefile/area_imovel.shp';
+                
+                // Usar shpjs para carregar o shapefile
+                const geojson = await shp(shapefileUrl);
+                
+                // Converter GeoJSON para features do OpenLayers
+                const features = new ol.format.GeoJSON().readFeatures(geojson, {
+                    featureProjection: 'EPSG:3857'
+                });
+                
+                // Adicionar features à fonte
+                shapefileSource.addFeatures(features);
+                
+                // Centralizar no shapefile
+                centerOnFeatures();
+                
+                loading.style.display = 'none';
+                
+            } catch (err) {
+                console.error('Erro ao carregar shapefile:', err);
+                loading.style.display = 'none';
+                error.textContent = 'Erro ao carregar o shapefile. Verifique se o arquivo existe na pasta shapefile/';
+                error.style.display = 'block';
+                
+                // Tentar método alternativo com fetch
+                tryAlternativeLoad();
+            }
+        }
+        
+        // Método alternativo para carregar o shapefile
+        async function tryAlternativeLoad() {
+            try {
+                const response = await fetch('./shapefile/area_imovel.shp');
+                if (!response.ok) {
+                    throw new Error('Arquivo não encontrado');
+                }
+                
+                const arrayBuffer = await response.arrayBuffer();
+                const geojson = await shp.parseShp(arrayBuffer);
+                
+                const features = new ol.format.GeoJSON().readFeatures(geojson, {
+                    featureProjection: 'EPSG:3857'
+                });
+                
+                shapefileSource.addFeatures(features);
+                centerOnFeatures();
+                
+                document.getElementById('error').style.display = 'none';
+                
+            } catch (err) {
+                console.error('Erro no método alternativo:', err);
+            }
+        }
+        
+        // Centralizar o mapa nas features do shapefile
+        function centerOnFeatures() {
+            const features = shapefileSource.getFeatures();
+            
+            if (features.length > 0) {
+                const extent = shapefileSource.getExtent();
+                map.getView().fit(extent, {
+                    padding: [50, 50, 50, 50],
+                    maxZoom: 18
+                });
+            }
+        }
+        
+        // Alternar visibilidade da camada do shapefile
+        function toggleLayer() {
+            const visible = shapefileLayer.getVisible();
+            shapefileLayer.setVisible(!visible);
+        }
+        
+        // Alternar visibilidade das camadas de imagem
+        function toggleImageLayers() {
+            imageLayers.forEach(layer => {
+                const visible = layer.getVisible();
+                layer.setVisible(!visible);
+            });
+        }
+        
+        // Ajustar transparência das imagens
+        function adjustImageOpacity() {
+            const opacity = prompt('Digite a transparência das imagens (0.0 a 1.0):', '0.7');
+            if (opacity !== null && !isNaN(opacity)) {
+                const opacityValue = parseFloat(opacity);
+                if (opacityValue >= 0 && opacityValue <= 1) {
+                    imageLayers.forEach(layer => {
+                        layer.setOpacity(opacityValue);
+                    });
+                }
+            }
+        }
+        
+        // Adicionar popup para mostrar informações das features
+        const popup = new ol.Overlay({
+            element: document.createElement('div'),
+            autoPan: true,
+            autoPanAnimation: {
+                duration: 250
+            }
+        });
+        map.addOverlay(popup);
+        
+        // Evento de clique no mapa
+        map.on('singleclick', function(evt) {
+            const feature = map.forEachFeatureAtPixel(evt.pixel, function(feature) {
+                return feature;
+            });
+            
+            if (feature) {
+                const properties = feature.getProperties();
+                let content = '<div style="background: white; padding: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);"><h3>Propriedades</h3>';
+                
+                for (const [key, value] of Object.entries(properties)) {
+                    if (key !== 'geometry') {
+                        content += `<p><strong>${key}:</strong> ${value}</p>`;
+                    }
+                }
+                content += '</div>';
+                
+                popup.getElement().innerHTML = content;
+                popup.setPosition(evt.coordinate);
+            } else {
+                popup.setPosition(undefined);
+            }
+        });
+        
+        // Inicializar quando a página carregar
+        window.onload = function() {
+            initMap();
+        };
+    </script>
+</body>
+</html>

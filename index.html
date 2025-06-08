@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visualizador de Shapefile</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ol@v7.4.0/ol.css">
+    <script src="https://cdn.jsdelivr.net/npm/ol@v7.4.0/dist/ol.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/shapefile@0.6.6/dist/shapefile.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.8.0/proj4.js"></script>
+    <style>
+        #map {
+            width: 100%;
+            height: 100vh;
+            position: relative;
+        }
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 5px;
+            z-index: 1000;
+        }
+        #layer-control {
+            position: absolute;
+            top: 0;
+            left: 0;
+            background: white;
+            padding: 15px;
+            border-radius: 0 8px 8px 0;
+            box-shadow: 0 2px 15px rgba(0,0,0,0.15);
+            z-index: 1000;
+            height: 100%;
+            width: 280px;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            transition: transform 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+        }
+        #toggle-sidebar {
+            display: none;
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 1001;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-weight: 600;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        @media (max-width: 768px) {
+            #layer-control {
+                transform: translateX(-100%);
+            }
+            
+            #layer-control.active {
+                transform: translateX(0);
+            }
+
+            #toggle-sidebar {
+                display: block;
+            }
+        }
+        .map-type-control {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+        .map-type-button {
+            width: 100%;
+            padding: 8px 12px;
+            margin: 4px 0;
+            border: none;
+            border-radius: 6px;
+            background-color: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            border: 1px solid #e9ecef;
+        }
+        .map-type-button:hover {
+            background-color: #e9ecef;
+        }
+        .map-type-button.active {
+            background-color: #4CAF50;
+            color: white;
+            border-color: #45a049;
+        }
+        .buttons-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        .layer-button {
+            width: 100%;
+            padding: 6px 8px;
+            margin: 0;
+            border: none;
+            border-radius: 6px;
+            background-color: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #333;
+            border: 1px solid #e9ecef;
+            line-height: 1.2;
+        }
+        .layer-button:hover {
+            background-color: #e9ecef;
+            transform: translateX(-3px);
+        }
+        .layer-button.active {
+            background-color: #4CAF50;
+            color: white;
+            border-color: #45a049;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .legend {
+            margin-top: 15px;
+            padding: 12px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            font-size: 12px;
+            border: 1px solid #e9ecef;
+        }
+        .legend-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #333;
+            padding-bottom: 5px;
+        }
+        .legend-item {
+            margin: 4px 0;
+            display: flex;
+            align-items: center;
+        }
+        .color-box {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 8px;
+            border: 1px solid #ccc;
+            flex-shrink: 0;
+            border-radius: 2px;
+        }
+        .legend-label {
+            flex-grow: 1;
+            color: #555;
+        }
+        #legend-content {
+            max-height: 150px;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+        .method-control {
+            margin: 15px 0;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+        .method-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #333;
+            padding-bottom: 5px;
+        }
+        .method-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        .method-button {
+            width: 100%;
+            padding: 6px 8px;
+            border: none;
+            border-radius: 6px;
+            background-color: #f8f9fa;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            color: #333;
+            border: 1px solid #e9ecef;
+            line-height: 1.2;
+        }
+        .method-button:hover {
+            background-color: #e9ecef;
+        }
+        .method-button.active {
+            background-color: #4CAF50;
+            color: white;
+            border-color: #45a049;
+        }
+
+        .talhao-control {
+            margin-top: auto;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+
+        .talhao-select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            background-color: white;
+            font-size: 13px;
+            color: #333;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .talhao-select:hover {
+            border-color: #4CAF50;
+        }
+
+        .talhao-select:focus {
+            outline: none;
+            border-color: #4CAF50;
+            box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="loading">Carregando...</div>
+    <button id="toggle-sidebar">☰ Atributos</button>
+    <div id="layer-control">
+        <h3 style="margin: 0 0 12px 0; font-size: 16px; color: #333; padding-bottom: 8px;">Atributos de Fertilidade</h3>
+        <div class="buttons-container">
+            <button class="layer-button" data-layer="SMP">SMP</button>
+            <button class="layer-button" data-layer="pH">pH</button>
+            <button class="layer-button" data-layer="MO">Matéria Orgânica</button>
+            <button class="layer-button" data-layer="P">Fósforo</button>
+            <button class="layer-button" data-layer="K">Potássio</button>
+            <button class="layer-button" data-layer="Ca">Cálcio</button>
+            <button class="layer-button" data-layer="Mg">Magnésio</button>
+            <button class="layer-button" data-layer="Al">Alumínio</button>
+            <button class="layer-button" data-layer="Mn">Manganês</button>
+            <button class="layer-button" data-layer="Cu">Cobre</button>
+            <button class="layer-button" data-layer="B">Boro</button>
+            <button class="layer-button" data-layer="S">Enxofre</button>
+            <button class="layer-button" data-layer="Zn">Zinco</button>
+            <button class="layer-button" data-layer="Argila">Argila</button>
+            <button class="layer-button" data-layer="none" style="grid-column: 1 / -1;">Nenhuma camada</button>
+        </div>
+
+        <div class="method-control">
+            <div class="method-title">Método</div>
+            <div class="method-buttons">
+                <button class="method-button" data-method="discrete" style="background-color: #4CAF50; color: white;">Discreto</button>
+                <button class="method-button" data-method="linear">Linear</button>
+            </div>
+        </div>
+
+        <div id="legend" class="legend">
+            <div class="legend-title">Legenda</div>
+            <div id="legend-content"></div>
+        </div>
+
+        <div class="talhao-control">
+            <div class="method-title">Talhão</div>
+            <select id="talhao-select" class="talhao-select">
+                <option value="">Selecione um talhão</option>
+            </select>
+        </div>
+    </div>
+    <script>
+        // Definir a projeção WGS84
+        const wgs84 = 'EPSG:4326';
+        const webMercator = 'EPSG:3857';
+
+        // Adicionar funcionalidade de toggle para mobile
+        const toggleButton = document.getElementById('toggle-sidebar');
+        const layerControl = document.getElementById('layer-control');
+
+        toggleButton.addEventListener('click', function() {
+            layerControl.classList.toggle('active');
+            this.textContent = layerControl.classList.contains('active') ? '✕ Fechar' : '☰ Atributos';
+        });
+
+        // Fechar sidebar ao clicar fora em dispositivos móveis
+        document.addEventListener('click', function(event) {
+            if (window.innerWidth <= 768) {
+                if (!layerControl.contains(event.target) && !toggleButton.contains(event.target)) {
+                    layerControl.classList.remove('active');
+                    toggleButton.textContent = '☰ Atributos';
+                }
+            }
+        });
+
+        // Criar o mapa base com camada híbrida
+        const map = new ol.Map({
+            target: 'map',
+            layers: [
+                new ol.layer.Tile({
+                    source: new ol.source.XYZ({
+                        url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                        maxZoom: 20
+                    })
+                })
+            ],
+            view: new ol.View({
+                center: ol.proj.fromLonLat([-50, -20]), // Coordenadas aproximadas do Brasil
+                zoom: 4
+            })
+        });
+
+        let shapefileExtent = null;
+        let currentMethod = 'discrete'; // Método padrão alterado para discrete
+        const pngLayers = {};
+        let vectorLayer = null; // Variável global para a camada do shapefile
+
+        // Definição das legendas para cada parâmetro
+        const legends = {
+            'P': {
+                title: 'Fósforo (P - Mehlich-1)',
+                unit: 'mg/dm³',
+                classes: [
+                    { label: 'Muito baixo', value: '< 3', color: '#FF0000' },
+                    { label: 'Baixo', value: '3 – 6', color: '#FFA500' },
+                    { label: 'Médio', value: '6,1 – 12', color: '#FFFF00' },
+                    { label: 'Alto', value: '12,1 – 18', color: '#90EE90' },
+                    { label: 'Muito alto', value: '> 18', color: '#008000' }
+                ]
+            },
+            'K': {
+                title: 'Potássio',
+                unit: 'mg/dm³',
+                classes: [
+                    { label: 'Muito baixo', value: '< 40', color: '#FF0000' },
+                    { label: 'Baixo', value: '41 – 70', color: '#FFA500' },
+                    { label: 'Médio', value: '71 – 120', color: '#FFFF00' },
+                    { label: 'Alto', value: '121 – 180', color: '#90EE90' },
+                    { label: 'Muito alto', value: '> 180', color: '#008000' }
+                ]
+            },
+            'Ca': {
+                title: 'Cálcio',
+                unit: 'cmolc/dm³',
+                classes: [
+                    { label: 'Muito baixo', value: '< 2,0', color: '#FF0000' },
+                    { label: 'Baixo', value: '2,0 – 4,0', color: '#FFA500' },
+                    { label: 'Médio', value: '4,1 – 6,0', color: '#FFFF00' },
+                    { label: 'Alto', value: '6,1 – 10,0', color: '#90EE90' },
+                    { label: 'Muito alto', value: '> 10,0', color: '#008000' }
+                ]
+            },
+            'Mg': {
+                title: 'Magnésio',
+                unit: 'cmolc/dm³',
+                classes: [
+                    { label: 'Muito baixo', value: '< 0,4', color: '#FF0000' },
+                    { label: 'Baixo', value: '0,41 – 0,8', color: '#FFA500' },
+                    { label: 'Médio', value: '0,81 – 1,5', color: '#FFFF00' },
+                    { label: 'Alto', value: '1,51 – 3,0', color: '#90EE90' },
+                    { label: 'Muito alto', value: '> 3,0', color: '#008000' }
+                ]
+            },
+            'S': {
+                title: 'Enxofre',
+                unit: 'mg/dm³',
+                classes: [
+                    { label: 'Baixo', value: '< 6', color: '#FF0000' },
+                    { label: 'Médio', value: '6 – 12', color: '#FFFF00' },
+                    { label: 'Adequado', value: '> 12', color: '#008000' }
+                ]
+            },
+            'Zn': {
+                title: 'Zinco',
+                unit: 'mg/dm³',
+                classes: [
+                    { label: 'Baixo', value: '< 0,5', color: '#FF0000' },
+                    { label: 'Médio', value: '0,5 – 1,0', color: '#FFFF00' },
+                    { label: 'Adequado', value: '> 1,0', color: '#008000' }
+                ]
+            },
+            'Mn': {
+                title: 'Manganês',
+                unit: 'mg/dm³',
+                classes: [
+                    { label: 'Baixo', value: '< 2,0', color: '#FF0000' },
+                    { label: 'Médio', value: '2,0 – 5,0', color: '#FFFF00' },
+                    { label: 'Adequado', value: '> 5,0', color: '#008000' }
+                ]
+            },
+            'B': {
+                title: 'Boro',
+                unit: 'mg/dm³',
+                classes: [
+                    { label: 'Baixo', value: '< 0,2', color: '#FF0000' },
+                    { label: 'Médio', value: '0,2 – 0,5', color: '#FFFF00' },
+                    { label: 'Adequado', value: '> 0,5', color: '#008000' }
+                ]
+            },
+            'Cu': {
+                title: 'Cobre',
+                unit: 'mg/dm³',
+                classes: [
+                    { label: 'Baixo', value: '< 0,2', color: '#FF0000' },
+                    { label: 'Médio', value: '0,2 – 0,4', color: '#FFFF00' },
+                    { label: 'Adequado', value: '> 0,4', color: '#008000' }
+                ]
+            },
+            'pH': {
+                title: 'pH em H₂O',
+                unit: 'pH',
+                classes: [
+                    { label: 'Muito ácido', value: '< 5,0', color: '#FF0000' },
+                    { label: 'Ácido', value: '5,0 – 5,5', color: '#FFA500' },
+                    { label: 'Moderadamente ácido', value: '5,6 – 6,0', color: '#FFFF00' },
+                    { label: 'Levemente ácido', value: '6,1 – 6,5', color: '#90EE90' },
+                    { label: 'Neutro', value: '6,6 – 7,0', color: '#008000' },
+                    { label: 'Alcalino', value: '> 7,0', color: '#0000FF' }
+                ]
+            },
+            'SMP': {
+                title: 'SMP',
+                unit: 'pH SMP',
+                classes: [
+                    { label: 'Alta necessidade', value: '< 5,4', color: '#FF0000' },
+                    { label: 'Média necessidade', value: '5,4 – 5,9', color: '#FFFF00' },
+                    { label: 'Baixa necessidade', value: '> 6,0', color: '#008000' }
+                ]
+            },
+            'Argila': {
+                title: 'Teor de Argila',
+                unit: '%',
+                classes: [
+                    { label: 'Muito arenoso', value: '< 15%', color: '#FF0000' },
+                    { label: 'Arenoso', value: '15 – 25%', color: '#FFA500' },
+                    { label: 'Média textura', value: '26 – 35%', color: '#FFFF00' },
+                    { label: 'Textura argilosa', value: '36 – 60%', color: '#90EE90' },
+                    { label: 'Muito argiloso', value: '> 60%', color: '#008000' }
+                ]
+            },
+            'MO': {
+                title: 'Matéria Orgânica (MO)',
+                unit: '%',
+                classes: [
+                    { label: 'Muito baixa', value: '< 1,0', color: '#FF0000' },
+                    { label: 'Baixa', value: '1,0 – 2,0', color: '#FFA500' },
+                    { label: 'Média', value: '2,1 – 3,0', color: '#FFFF00' },
+                    { label: 'Alta', value: '3,1 – 4,0', color: '#90EE90' },
+                    { label: 'Muito alta', value: '> 4,0', color: '#008000' }
+                ]
+            }
+        };
+
+        // Adiciona evento de clique para os botões de método
+        document.querySelectorAll('.method-button').forEach(button => {
+            button.addEventListener('click', function() {
+                const method = this.getAttribute('data-method');
+                currentMethod = method;
+                
+                // Atualiza a aparência dos botões
+                document.querySelectorAll('.method-button').forEach(btn => {
+                    btn.style.backgroundColor = '';
+                    btn.style.color = '';
+                });
+                this.style.backgroundColor = '#4CAF50';
+                this.style.color = 'white';
+                
+                // Atualiza a camada atual se houver uma selecionada
+                const activeButton = document.querySelector('.layer-button.active');
+                if (activeButton) {
+                    const layer = activeButton.getAttribute('data-layer');
+                    updateVisibleLayer(layer);
+                }
+            });
+        });
+
+        // Função para atualizar a camada visível
+        function updateVisibleLayer(layerId) {
+            // Ocultar todas as camadas
+            Object.values(pngLayers).forEach(layer => layer.setVisible(false));
+            
+            // Mostrar a camada selecionada com o método atual
+            const suffix = currentMethod === 'linear' ? '_L' : '';
+            const layerKey = `${layerId}${suffix}`;
+            if (pngLayers[layerKey]) {
+                pngLayers[layerKey].setVisible(true);
+            }
+        }
+
+        // Função para atualizar a legenda
+        function updateLegend(layerId) {
+            const legendContent = document.getElementById('legend-content');
+            if (layerId === 'none') {
+                legendContent.innerHTML = '<div class="legend-item">Selecione uma camada para ver a legenda</div>';
+                return;
+            }
+
+            const legend = legends[layerId];
+            let html = `<div class="legend-title">${legend.title}</div>`;
+            legend.classes.forEach(range => {
+                html += `
+                    <div class="legend-item">
+                        <span class="color-box" style="background-color: ${range.color}"></span>
+                        ${range.label} (${range.value} ${legend.unit})
+                    </div>
+                `;
+            });
+            legendContent.innerHTML = html;
+        }
+
+        // Função para carregar o shapefile
+        async function loadShapefile() {
+            try {
+                console.log('Iniciando carregamento do shapefile...');
+                const shpResponse = await fetch('shapefile/area_imovel2.shp');
+                const dbfResponse = await fetch('shapefile/area_imovel2.dbf');
+                const prjResponse = await fetch('shapefile/area_imovel2.prj');
+
+                if (!shpResponse.ok || !dbfResponse.ok || !prjResponse.ok) {
+                    throw new Error('Erro ao carregar arquivos do shapefile');
+                }
+
+                console.log('Arquivos carregados com sucesso');
+
+                const shpBuffer = await shpResponse.arrayBuffer();
+                const dbfBuffer = await dbfResponse.arrayBuffer();
+                const prjText = await prjResponse.text();
+
+                console.log('Buffers criados, abrindo shapefile...');
+
+                // Usar a biblioteca shapefile corretamente
+                const source = await shapefile.open(shpBuffer, dbfBuffer);
+                
+                const features = [];
+                let result;
+                const talhoes = new Set(); // Conjunto para armazenar talhões únicos
+
+                console.log('Lendo features do shapefile...');
+
+                while ((result = await source.read()) && !result.done) {
+                    const feature = result.value;
+                    console.log('Feature encontrada:', feature);
+                    console.log('Propriedades:', feature.properties);
+                    console.log('Chaves das propriedades:', Object.keys(feature.properties));
+                    
+                    const geometry = feature.geometry;
+                    
+                    // Transformar as coordenadas de WGS84 para Web Mercator
+                    const transformedCoordinates = geometry.coordinates.map(ring => 
+                        ring.map(coord => ol.proj.fromLonLat(coord))
+                    );
+                    
+                    // Criar feature do OpenLayers com todas as propriedades
+                    const olFeature = new ol.Feature({
+                        geometry: new ol.geom.Polygon(transformedCoordinates)
+                    });
+
+                    // Copiar todas as propriedades do shapefile para o feature
+                    Object.keys(feature.properties).forEach(key => {
+                        console.log(`Propriedade ${key}:`, feature.properties[key]);
+                        olFeature.set(key, feature.properties[key]);
+                    });
+
+                    // Verificar se existe a propriedade TALHAO
+                    if (feature.properties.TALHAO) {
+                        console.log('Talhão encontrado:', feature.properties.TALHAO);
+                        talhoes.add(feature.properties.TALHAO);
+                    }
+
+                    features.push(olFeature);
+                }
+
+                console.log('Total de talhões encontrados:', talhoes.size);
+                console.log('Lista de talhões:', Array.from(talhoes));
+
+                // Preencher o select com os talhões
+                const talhaoSelect = document.getElementById('talhao-select');
+                talhaoSelect.innerHTML = '<option value="">Selecione um talhão</option>';
+                
+                // Adiciona cada talhão ao select
+                talhoes.forEach(talhao => {
+                    const option = document.createElement('option');
+                    option.value = talhao;
+                    option.textContent = talhao;
+                    talhaoSelect.appendChild(option);
+                });
+
+                // Adicionar evento de mudança ao select
+                talhaoSelect.addEventListener('change', function() {
+                    const selectedTalhao = this.value;
+                    console.log('Talhão selecionado:', selectedTalhao);
+
+                    if (!selectedTalhao) {
+                        // Se nenhum talhão selecionado, mostrar todos
+                        features.forEach(feature => {
+                            feature.setStyle(new ol.style.Style({
+                                stroke: new ol.style.Stroke({
+                                    color: 'rgba(255, 0, 0, 1.0)',
+                                    width: 2
+                                }),
+                                fill: new ol.style.Fill({
+                                    color: 'rgba(255, 0, 0, 0.0)'
+                                })
+                            }));
+                        });
+
+                        // Voltar para a extensão total do shapefile
+                        map.getView().fit(shapefileExtent, {
+                            padding: [50, 50, 50, 50],
+                            maxZoom: 19
+                        });
+                        return;
+                    }
+
+                    let foundFeature = false;
+
+                    // Destacar o talhão selecionado
+                    features.forEach(feature => {
+                        const talhao = feature.get('TALHAO');
+                        console.log('Verificando feature com talhão:', talhao);
+                        
+                        if (talhao === selectedTalhao) {
+                            foundFeature = true;
+                            feature.setStyle(new ol.style.Style({
+                                stroke: new ol.style.Stroke({
+                                    color: 'rgba(255, 0, 0, 1.0)',
+                                    width: 2
+                                }),
+                                fill: new ol.style.Fill({
+                                    color: 'rgba(255, 0, 0, 0.0)'
+                                })
+                            }));
+
+                            // Focar no talhão selecionado
+                            const extent = feature.getGeometry().getExtent();
+                            console.log('Extensão do talhão:', extent);
+                            
+                            // Adicionar um pequeno padding à extensão
+                            const padding = 50; // metros
+                            const expandedExtent = [
+                                extent[0] - padding,
+                                extent[1] - padding,
+                                extent[2] + padding,
+                                extent[3] + padding
+                            ];
+
+                            map.getView().fit(expandedExtent, {
+                                padding: [50, 50, 50, 50],
+                                maxZoom: 19,
+                                duration: 1000 // duração da animação em milissegundos
+                            });
+                        } else {
+                            feature.setStyle(new ol.style.Style({
+                                stroke: new ol.style.Stroke({
+                                    color: 'rgba(255, 0, 0, 0.5)',
+                                    width: 1
+                                }),
+                                fill: new ol.style.Fill({
+                                    color: 'rgba(255, 0, 0, 0.0)'
+                                })
+                            }));
+                        }
+                    });
+
+                    if (!foundFeature) {
+                        console.log('Talhão não encontrado:', selectedTalhao);
+                    }
+                });
+
+                // Criar camada do shapefile
+                vectorLayer = new ol.layer.Vector({
+                    source: new ol.source.Vector({
+                        features: features
+                    }),
+                    style: new ol.style.Style({
+                        stroke: new ol.style.Stroke({
+                            color: 'rgba(255, 0, 0, 1.0)',
+                            width: 1.5
+                        }),
+                        fill: new ol.style.Fill({
+                            color: 'rgba(255, 0, 0, 0.0)'
+                        })
+                    }),
+                    zIndex: 1000 // Garantir que fique por cima
+                });
+
+                // Adicionar a camada do shapefile por último para ficar por cima
+                map.addLayer(vectorLayer);
+
+                // Obter a extensão do shapefile
+                const extent = vectorLayer.getSource().getExtent();
+                if (!extent || extent[0] === Infinity) {
+                    throw new Error('Não foi possível determinar a extensão do shapefile');
+                }
+
+                // Salvar a extensão para usar nas imagens
+                shapefileExtent = extent;
+
+                // Centralizar o mapa no shapefile
+                map.getView().fit(extent, {
+                    padding: [50, 50, 50, 50],
+                    maxZoom: 19
+                });
+
+                return true;
+            } catch (error) {
+                console.error('Erro ao carregar o shapefile:', error);
+                document.getElementById('loading').innerHTML = 'Erro ao carregar o shapefile: ' + error.message;
+                return false;
+            }
+        }
+
+        // Função para carregar as camadas PNG
+        async function loadPNGLayers() {
+            try {
+                if (!shapefileExtent) {
+                    throw new Error('Shapefile não carregado');
+                }
+
+                const layerConfigs = {
+                    'Al': 'Alumínio',
+                    'S': 'Enxofre',
+                    'Ca': 'Cálcio',
+                    'B': 'Boro',
+                    'Mg': 'Magnésio',
+                    'MO': 'Matéria Orgânica',
+                    'pH': 'pH',
+                    'SMP': 'SMP',
+                    'Argila': 'Argila',
+                    'K': 'Potássio',
+                    'P': 'Fósforo',
+                    'Zn': 'Zinco',
+                    'Cu': 'Cobre',
+                    'Mn': 'Manganês'
+                };
+
+                for (const [id, name] of Object.entries(layerConfigs)) {
+                    // Carregar versão linear
+                    const linearLayer = new ol.layer.Image({
+                        source: new ol.source.ImageStatic({
+                            url: `layers/${id}_L.png`,
+                            imageExtent: shapefileExtent
+                        }),
+                        visible: false,
+                        zIndex: 1 // Garantir que fique abaixo do shapefile
+                    });
+                    map.addLayer(linearLayer);
+                    pngLayers[`${id}_L`] = linearLayer;
+
+                    // Carregar versão discreta
+                    const discreteLayer = new ol.layer.Image({
+                        source: new ol.source.ImageStatic({
+                            url: `layers/${id}.png`,
+                            imageExtent: shapefileExtent
+                        }),
+                        visible: false,
+                        zIndex: 1 // Garantir que fique abaixo do shapefile
+                    });
+                    map.addLayer(discreteLayer);
+                    pngLayers[id] = discreteLayer;
+                }
+
+                // Adicionar eventos aos botões
+                document.querySelectorAll('.layer-button').forEach(button => {
+                    button.addEventListener('click', function() {
+                        // Remover classe active de todos os botões
+                        document.querySelectorAll('.layer-button').forEach(btn => {
+                            btn.classList.remove('active');
+                        });
+                        
+                        // Adicionar classe active ao botão clicado
+                        this.classList.add('active');
+                        
+                        const layerId = this.dataset.layer;
+                        updateVisibleLayer(layerId);
+                        
+                        // Atualizar a legenda
+                        updateLegend(layerId);
+                    });
+                });
+
+                // Inicializar a legenda
+                updateLegend('none');
+
+                return true;
+            } catch (error) {
+                console.error('Erro ao carregar as camadas PNG:', error);
+                document.getElementById('loading').innerHTML = 'Erro ao carregar as camadas PNG: ' + error.message;
+                return false;
+            }
+        }
+
+        // Função principal para carregar tudo
+        async function loadAll() {
+            try {
+                const shapefileLoaded = await loadShapefile();
+                const pngLayersLoaded = await loadPNGLayers();
+
+                if (shapefileLoaded && pngLayersLoaded) {
+                    document.getElementById('loading').style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Erro ao carregar os dados:', error);
+                document.getElementById('loading').innerHTML = 'Erro ao carregar os dados: ' + error.message;
+            }
+        }
+
+        // Iniciar carregamento
+        loadAll();
+    </script>
+</body>
+</html> 
